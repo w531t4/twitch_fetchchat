@@ -1,0 +1,1 @@
+from twitch_fetchchat.twitch_ircbridge import TwitchIrcBridge
