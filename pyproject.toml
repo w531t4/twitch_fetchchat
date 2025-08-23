@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twitch_fetchchat"
-version = "0.1.1"
+version = "0.1.2"
 description = "send Twitch chat to mqtt or raw udp target"
 authors = [
     { email="w531t4@gmail.com" }
