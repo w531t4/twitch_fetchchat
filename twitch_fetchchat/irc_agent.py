@@ -43,8 +43,6 @@ class IRCAgent():
         self._connected = False
         self._stop_flag = False
         self._lock = threading.RLock()
-        self._want_connect = False
-
 
     def start(self) -> None:
         """ start the agent """
@@ -57,7 +55,6 @@ class IRCAgent():
         with self._lock:
             self.log(f"switch_channel: channel={channel}")
             self._current_channel = channel
-            self._want_connect = channel is not None
             self._last.clear()
         self._emit()  # send blanks on switch/part
 
@@ -92,8 +89,7 @@ class IRCAgent():
                     # Only connect when we actually have a target channel
                     with self._lock:
                         self.log(f"self._current_channel={self._current_channel}")
-                        self.log(f"self._want_connect={self._want_connect}")
-                    if not self._want_connect:
+                    if self._current_channel is None:
                         time.sleep(self.config.reconnect_delay_s)
                         continue
                     self._connect()
