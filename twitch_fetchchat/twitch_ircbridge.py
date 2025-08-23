@@ -13,7 +13,7 @@ import socket
 import time
 from functools import partial
 from dataclasses import fields
-from typing import Callable, Any, Dict, Optional
+from typing import Callable, Any, Dict, Optional, List
 import appdaemon.plugins.hass.hassapi as hass
 import irc.client
 from irc.connection import Factory
@@ -24,7 +24,7 @@ from twitch_fetchchat.ha_transport import HAAttrTransport
 from twitch_fetchchat.config import IrcBridgeConfig
 
 # -------------------- App --------------------
-Callback = Callable[[str, str, Any, Any, dict], None]
+
 
 class TwitchIrcBridge(hass.Hass):
     """
@@ -34,8 +34,18 @@ class TwitchIrcBridge(hass.Hass):
     - Emits rolling last 3 public chat lines through chosen transport(s)
     """
     config: IrcBridgeConfig
+    _reactor: irc.client.Reactor | None
+    _conn: irc.client.ServerConnection | None
+    _connected: bool
+    _stop_flag: bool
+    _want_connect: bool
+    _lock: threading.RLock
+    _last: deque[Dict[str, str | int]]
+    _transports: List[UDPTransport | MQTTTransport | HAAttrTransport]
+    _irc_thread: threading.Thread
+    _current_channel: str | None
 
-    def initialize(self):
+    def initialize(self) -> None:
         """ appdaemon init section """
         self.args.update({"entity_id": self.args.get("channel_entity_id")})
         self.args.pop("channel_entity_id")
@@ -91,12 +101,13 @@ class TwitchIrcBridge(hass.Hass):
         self._irc_thread.start()
 
     # -------------------- Entity handling --------------------
-    def _on_channel_change(self,
+    def _on_channel_change(self,            # pylint: disable=unused-argument
                            entity: str,
-                           attribute: str,
-                           old: Any,
+                           attribute: str,  # pylint: disable=unused-argument
+                           old: Any,        # pylint: disable=unused-argument
                            new: Any,
-                           **kwargs: Any) -> None:
+                           **kwargs: Any,
+                           ) -> None:
         """React to channel-entity changes and (dis)connect accordingly."""
         if entity != self.config.entity_id:
             self.log(f"this shouldn't happen. found entity={entity} != "
@@ -128,14 +139,13 @@ class TwitchIrcBridge(hass.Hass):
 
 
     # -------------------- Emission --------------------
-    def _emit(self):
+    def _emit(self) -> None:
         with self._lock:
-            items = list(self._last)
+            items = list(self._last)[(-1 * self.config.max_messages):]
         # Build exactly 3 display lines (oldest->newest), empty if missing
-        pad = [""] * (3 - len(items)) + [
-            f"{i['user']}: {i['msg']}" for i in items[-3:]
+        lines = [""] * (self.config.max_messages - len(items)) + [
+            f"{i['user']}: {i['msg']}" for i in items
         ]
-        lines = pad[-3:]
         for t in self._transports:
             try:
                 t.send(lines)
@@ -143,33 +153,35 @@ class TwitchIrcBridge(hass.Hass):
                 self.log(f"Transport send error: {e}", level="ERROR")
 
     # -------------------- IRC core --------------------
-    def _irc_loop(self):
+    def _irc_loop(self) -> None:
+        joined: set[str] = set()
         backoff = self.config.reconnect_delay_s
         while not self._stop_flag:
             try:
                 if not self._connected:
                     # Only connect when we actually have a target channel
                     with self._lock:
-                        want = self._want_connect
                         self.log(f"self._current_channel={self._current_channel}")
                         self.log(f"self._want_connect={self._want_connect}")
-                    if not want:
+                    if not self._want_connect:
                         time.sleep(self.config.reconnect_delay_s)
                         continue
                     self._connect()
+                    joined = set()
                     backoff = self.config.reconnect_delay_s  # reset after success
 
-                self._reactor.process_once(timeout=0.5)
+                if not self._reactor:
+                    raise NotImplementedError("_reactor should be defined here, but isn't.")
+                self._reactor.process_once(timeout=0.5) # pyright: ignore[reportArgumentType]
 
                 with self._lock:
                     target = self._current_channel
                     conn = self._conn
 
                 if self._connected and conn:
-                    joined = getattr(conn, "_joined", set())
-                    want = set([f"#{target}"]) if target else set()
+                    want: set[str] = set([f"#{target}"]) if target else set()
                     # self.log(f"joined={joined} want={want}")
-                    for ch in list(joined - want):
+                    for ch in list(joined.difference(want)):
                         try:
                             conn.part(ch)
                             joined.discard(ch)
@@ -177,7 +189,7 @@ class TwitchIrcBridge(hass.Hass):
                         except Exception as e:
                             self.log(f"PART error: {e}", level="ERROR")
 
-                    for ch in list(want - joined):
+                    for ch in list(want.difference(joined)):
                         try:
                             conn.join(ch)
                             joined.add(ch)
@@ -206,7 +218,6 @@ class TwitchIrcBridge(hass.Hass):
             password=None,
             connect_factory=Factory(wrapper=wrapper),
         )
-        self._conn._joined = set()
 
         try:
             self._conn.cap("REQ", "twitch.tv/tags")
@@ -221,7 +232,7 @@ class TwitchIrcBridge(hass.Hass):
 
         self._connected = True
 
-    def _teardown(self):
+    def _teardown(self) -> None:
         self._connected = False
         try:
             if self._conn:
@@ -231,7 +242,7 @@ class TwitchIrcBridge(hass.Hass):
         self._conn = None
         self._reactor = None
 
-    def terminate(self):
+    def terminate(self) -> None:
         self._stop_flag = True
         self._teardown()
 
