@@ -3,12 +3,19 @@
 # This file is licensed under the MIT License.
 # See the LICENSE file in the project root for full license text.
 
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import time
 from twitch_fetchchat.base_transport import _TransportBase
 
+if TYPE_CHECKING:
+    from twitch_fetchchat.twitch_ircbridge import TwitchIrcBridge
+
 
 class HAAttrTransport(_TransportBase):
-    def __init__(self, hass_app, entity_id="sensor.twitch_chat_bridge"):
+    def __init__(self,
+                 hass_app: TwitchIrcBridge,
+                 entity_id: str = "sensor.twitch_chat_bridge"):
         self.hass = hass_app
         self.entity_id = entity_id
 
