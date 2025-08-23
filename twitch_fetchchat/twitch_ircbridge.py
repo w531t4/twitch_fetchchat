@@ -11,10 +11,12 @@ import random
 import string
 import socket
 import time
+from functools import partial
 from dataclasses import fields
 from typing import Callable, Any, Dict, Optional
 import appdaemon.plugins.hass.hassapi as hass
 import irc.client
+from irc.connection import Factory
 
 from twitch_fetchchat.mqtt_transport import MQTTTransport
 from twitch_fetchchat.udp_transport import UDPTransport
@@ -196,12 +198,13 @@ class TwitchIrcBridge(hass.Hass):
 
         self.log(f"Connecting to {self.config.irc_host}:{self.config.irc_port} "
                  f"as {nick} (anonymous)")
+        wrapper = self._tls_connect_wrapper(self.config.irc_host)
         self._conn = self._reactor.server().connect(
             self.config.irc_host,
             self.config.irc_port,
             nick,
             password=None,
-            connect_factory=self._tls_connect_factory,  # <-- key change
+            connect_factory=Factory(wrapper=wrapper),
         )
         self._conn._joined = set()
 
@@ -272,35 +275,13 @@ class TwitchIrcBridge(hass.Hass):
         except Exception as e:
             self.log(f"pubmsg parse error: {e}", level="ERROR")
 
-    def _tls_connect_factory(self, *args: Any, **kwargs: Any) -> ssl.SSLSocket:
+    def _tls_connect_wrapper(self, server_address: str) -> Callable[[socket.socket], ssl.SSLSocket]:
         """
-        Robust TLS socket factory for python-irc.
-        Accepts (host, port), ( (host, port), ), or host with port in kwargs.
+        TLS socket wrapper for python-irc.
         """
-        host: str
-        port: int
-
-        # Unpack args in a version-agnostic way
-        if len(args) == 1 and isinstance(args[0], tuple):
-            host, port = args[0]  # ((host, port),)
-        elif len(args) >= 2:
-            host, port = args[0], args[1]  # (host, port, ...)
-        elif len(args) == 1:
-            host = args[0]
-            port = int(kwargs.get("port", self.config.irc_port))
-        else:
-            host = kwargs.get("host") or kwargs.get("server")
-            if not host:
-                raise TypeError("connect_factory: missing host")
-            port = int(kwargs.get("port", self.config.irc_port))
-
-        # TCP connect
-        raw = socket.create_connection((host, port), timeout=15)
-
         # Verified TLS (hostname check + CA validation)
         ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.check_hostname = True
         ctx.verify_mode = ssl.CERT_REQUIRED
-
-        return ctx.wrap_socket(raw, server_hostname=host)
+        return partial(ctx.wrap_socket, server_hostname=server_address)
