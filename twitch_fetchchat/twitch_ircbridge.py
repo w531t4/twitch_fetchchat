@@ -11,14 +11,15 @@ import random
 import string
 import socket
 import time
-from typing import Callable, Any, cast, Dict, Optional, Tuple
+from dataclasses import fields
+from typing import Callable, Any, Dict, Optional
 import appdaemon.plugins.hass.hassapi as hass
 import irc.client
-import irc.connection
 
 from twitch_fetchchat.mqtt_transport import MQTTTransport
 from twitch_fetchchat.udp_transport import UDPTransport
 from twitch_fetchchat.ha_transport import HAAttrTransport
+from twitch_fetchchat.config import IrcBridgeConfig
 
 # -------------------- App --------------------
 Callback = Callable[[str, str, Any, Any, dict], None]
@@ -30,34 +31,19 @@ class TwitchIrcBridge(hass.Hass):
     - Joins/parts as the entity changes (unknown/empty => part & clear output)
     - Emits rolling last 3 public chat lines through chosen transport(s)
     """
+    config: IrcBridgeConfig
 
     def initialize(self):
-        # -------- Required --------
-        self.entity_id = self.args.get("channel_entity_id")              # e.g. sensor.twitch_channel
+        """ appdaemon init section """
+        self.args.update({"entity_id": self.args.get("channel_entity_id")})
+        self.args.pop("channel_entity_id")
+        self.config = IrcBridgeConfig(**{f.name: self.args[f.name]
+                                            for f in fields(IrcBridgeConfig)
+                                            if f.name in self.args})
 
-        # -------- Output / transport config --------
-        # transport: "udp" | "mqtt" | "both"
-        self.transport_mode = (self.args.get("transport", "udp")).lower()
-        self.max_messages = int(self.args.get("max_messages", 3))  # must be >= 3; we emit top 3
-
-        # UDP options
-        self.udp_hosts = self.args.get("udp_host", [])           # string or [list]
-        self.udp_port = int(self.args.get("udp_port", 7777))
-        self.udp_line_max_chars = self.args.get("udp_line_max_chars", 160)  # e.g. 160 or None
-
-        # MQTT options
-        self.mqtt_base_topic = self.args.get("mqtt_base_topic", "twitch_chat")
-        self.mqtt_retain = bool(self.args.get("mqtt_retain", True))
-
-        # -------- IRC options --------
-        self.irc_host = self.args.get("irc_host", "irc.chat.twitch.tv")
-        self.irc_port = int(self.args.get("irc_port", 6697))  # TLS
-        self.reconnect_delay_s = int(self.args.get("reconnect_delay_s", 5))
-
-        self.ha_entity_id = self.args.get("ha_entity_id", "sensor.twitch_chat_bridge")
 
         # -------- State --------
-        self._last = deque(maxlen=max(self.max_messages, 3))  # we’ll always output top 3
+        self._last = deque(maxlen=max(self.config.max_messages, 3))  # we’ll always output top 3
         self._reactor = None
         self._conn = None
         self._current_channel = None
@@ -68,30 +54,35 @@ class TwitchIrcBridge(hass.Hass):
 
         # -------- Build transports --------
         self._transports = []
-        if self.transport_mode in ("udp", "both"):
-            if not self.udp_hosts:
-                self.error("transport=udp/both requires udp_host", level="ERROR")
+        if self.config.transport_mode == "udp":
+            if not self.config.udp_hosts:
+                self.error("transport=udp requires udp_host", level="ERROR")
             else:
-                self._transports.append(UDPTransport(self, self.udp_hosts, self.udp_port, self.udp_line_max_chars))
-        if self.transport_mode in ("mqtt", "both"):
-            self._transports.append(MQTTTransport(self, self.mqtt_base_topic, self.mqtt_retain))
-        if self.transport_mode in ("ha", "both_ha_udp", "both_ha_mqtt"):  # or just check == "ha"
-            self._transports.append(HAAttrTransport(self, self.ha_entity_id))
+                self._transports.append(UDPTransport(self,
+                                                     self.config.udp_hosts,
+                                                     self.config.udp_port,
+                                                     self.config.udp_line_max_chars))
+        elif self.config.transport_mode == "mqtt":
+            self._transports.append(MQTTTransport(self,
+                                                  self.config.mqtt_base_topic,
+                                                  self.config.mqtt_retain))
+        elif self.config.transport_mode == "ha":
+            self._transports.append(HAAttrTransport(self, self.config.ha_entity_id))
         if not self._transports:
-            self.error("No valid transport configured (use udp/mqtt/both)", level="ERROR")
+            self.error("No valid transport configured (use udp/mqtt/ha)", level="ERROR")
 
         # Drive from entity
         # subscribe for future changes
-        entity_id: str = self.entity_id
+        entity_id: str = self.config.entity_id
         self.listen_state(self._on_channel_change,
                           entity_id)
 
         # apply current value once at startup
-        cur = self.get_state(self.entity_id)  # None if entity missing
-        self.log(f"initial entity_id={self.entity_id} cur={cur}")
-        self._on_channel_change(self.entity_id, "state", None, cur, {})
+        cur = self.get_state(self.config.entity_id)  # None if entity missing
+        self.log(f"initial entity_id={self.config.entity_id} cur={cur}")
+        self._on_channel_change(self.config.entity_id, "state", None, cur)
 
-        self.log(f"TwitchIrcBridge ready (transport={self.transport_mode})")
+        self.log(f"TwitchIrcBridge ready (transport={self.config.transport_mode})")
 
         # -------- Start IRC loop thread --------
         self._irc_thread = threading.Thread(target=self._irc_loop, daemon=True)
@@ -103,13 +94,14 @@ class TwitchIrcBridge(hass.Hass):
                            attribute: str,
                            old: Any,
                            new: Any,
-                           kwargs: dict[str, Any]) -> None:
+                           **kwargs: Any) -> None:
         """React to channel-entity changes and (dis)connect accordingly."""
-        if entity != self.entity_id:
-            self.log("this shouldn't happen. found entity=%s != self.entity_id=%s" % (entity, self.entity_id))
+        if entity != self.config.entity_id:
+            self.log(f"this shouldn't happen. found entity={entity} != "
+                     f"self.config.entity_id=self.config.entity_id")
         new_ch: str = (new or "").strip().lstrip("#").lower()
         if new in (None, "") or new_ch in ("unknown", "unavailable", "none"):
-            self.log(f"{self.entity_id} unknown/unavailable -> disconnect IRC")
+            self.log(f"{self.config.entity_id} unknown/unavailable -> disconnect IRC")
             self._switch_channel(None)
         else:
             self._switch_channel(new_ch)
@@ -150,7 +142,7 @@ class TwitchIrcBridge(hass.Hass):
 
     # -------------------- IRC core --------------------
     def _irc_loop(self):
-        backoff = self.reconnect_delay_s
+        backoff = self.config.reconnect_delay_s
         while not self._stop_flag:
             try:
                 if not self._connected:
@@ -160,10 +152,10 @@ class TwitchIrcBridge(hass.Hass):
                         self.log(f"self._current_channel={self._current_channel}")
                         self.log(f"self._want_connect={self._want_connect}")
                     if not want:
-                        time.sleep(self.reconnect_delay_s)
+                        time.sleep(self.config.reconnect_delay_s)
                         continue
                     self._connect()
-                    backoff = self.reconnect_delay_s  # reset after success
+                    backoff = self.config.reconnect_delay_s  # reset after success
 
                 self._reactor.process_once(timeout=0.5)
 
@@ -202,10 +194,11 @@ class TwitchIrcBridge(hass.Hass):
         self._reactor = irc.client.Reactor()
         nick = "justinfan" + "".join(random.choices(string.digits, k=6))  # anonymous
 
-        self.log(f"Connecting to {self.irc_host}:{self.irc_port} as {nick} (anonymous)")
+        self.log(f"Connecting to {self.config.irc_host}:{self.config.irc_port} "
+                 f"as {nick} (anonymous)")
         self._conn = self._reactor.server().connect(
-            self.irc_host,
-            self.irc_port,
+            self.config.irc_host,
+            self.config.irc_port,
             nick,
             password=None,
             connect_factory=self._tls_connect_factory,  # <-- key change
@@ -294,12 +287,12 @@ class TwitchIrcBridge(hass.Hass):
             host, port = args[0], args[1]  # (host, port, ...)
         elif len(args) == 1:
             host = args[0]
-            port = int(kwargs.get("port", getattr(self, "irc_port", 6697)))
+            port = int(kwargs.get("port", self.config.irc_port))
         else:
             host = kwargs.get("host") or kwargs.get("server")
             if not host:
                 raise TypeError("connect_factory: missing host")
-            port = int(kwargs.get("port", getattr(self, "irc_port", 6697)))
+            port = int(kwargs.get("port", self.config.irc_port))
 
         # TCP connect
         raw = socket.create_connection((host, port), timeout=15)
