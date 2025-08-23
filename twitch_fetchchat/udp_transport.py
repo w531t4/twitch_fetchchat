@@ -3,12 +3,21 @@
 # This file is licensed under the MIT License.
 # See the LICENSE file in the project root for full license text.
 
+from __future__ import annotations
 import socket
+from typing import Sequence, TYPE_CHECKING
 from twitch_fetchchat.base_transport import _TransportBase
+
+if TYPE_CHECKING:
+    from twitch_fetchchat.twitch_ircbridge import TwitchIrcBridge
 
 
 class UDPTransport(_TransportBase):
-    def __init__(self, logger, hosts, port, max_chars=None):
+    def __init__(self,
+                 logger: TwitchIrcBridge,
+                 hosts: Sequence[str],
+                 port: int,
+                 max_chars: int | None = None):
         self.log = logger.log
         self.hosts = hosts if isinstance(hosts, (list, tuple)) else [hosts]
         self.port = int(port)
