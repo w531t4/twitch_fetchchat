@@ -19,6 +19,9 @@ dependencies = [
     "appdaemon>=4.0.0"
 ]
 
+[tool.setuptools]
+packages = ["twitch_fetchchat"]
+
 [tool.semantic_release]
 branch = "main"
 version_toml = ["pyproject.toml:project.version"]
