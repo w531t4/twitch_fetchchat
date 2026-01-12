@@ -27,9 +27,14 @@ jobs:
       - name: Install semantic-release
         run: pip install python-semantic-release==9.8.0
 
-      - name: Publish release
+      - name: Publish release - version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           semantic-release version --print
+
+      - name: Publish release - publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           semantic-release publish
