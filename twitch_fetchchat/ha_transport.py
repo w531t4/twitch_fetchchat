@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 
 
 class HAAttrTransport(_TransportBase):
-    def __init__(self,
-                 hass_app: TwitchIrcBridge,
-                 entity_id: str = "sensor.twitch_chat_bridge"):
+    def __init__(
+        self, hass_app: TwitchIrcBridge, entity_id: str = "sensor.twitch_chat_bridge"
+    ):
         self.hass = hass_app
         self.entity_id = entity_id
 

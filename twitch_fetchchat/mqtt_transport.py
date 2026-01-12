@@ -13,10 +13,12 @@ if TYPE_CHECKING:
 
 
 class MQTTTransport(_TransportBase):
-    def __init__(self,
-                 hass_app: TwitchIrcBridge,
-                 base_topic: str = "twitch_chat",
-                 retain: bool = True):
+    def __init__(
+        self,
+        hass_app: TwitchIrcBridge,
+        base_topic: str = "twitch_chat",
+        retain: bool = True,
+    ):
         self.hass = hass_app
         self.base = base_topic.rstrip("/")
         self.retain = bool(retain)
@@ -25,9 +27,14 @@ class MQTTTransport(_TransportBase):
         # lines: exactly 3 strings, oldest->newest
         # Publish JSON array as canonical
         payload = json.dumps(
-            [{"text": (l or ""),
-              "ts": int(datetime.now(tz=timezone.utc).timestamp())} for l in lines],
-            ensure_ascii=False
+            [
+                {
+                    "text": (l or ""),
+                    "ts": int(datetime.now(tz=timezone.utc).timestamp()),
+                }
+                for l in lines
+            ],
+            ensure_ascii=False,
         )
         self.hass.call_service(
             "mqtt/publish",
@@ -39,7 +46,7 @@ class MQTTTransport(_TransportBase):
         for i in range(3):
             self.hass.call_service(
                 "mqtt/publish",
-                topic=f"{self.base}/line{i+1}",
+                topic=f"{self.base}/line{i + 1}",
                 payload=lines[i] or "",
                 retain=self.retain,
             )

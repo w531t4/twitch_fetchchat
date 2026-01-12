@@ -5,8 +5,10 @@ from typing import Protocol, Literal, overload
 
 Level = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
+
 class HassLog(Protocol):
-    """ helper for communicating structure for hass log function """
+    """helper for communicating structure for hass log function"""
+
     @overload
     def __call__(self, message: str, /) -> None: ...
     @overload
