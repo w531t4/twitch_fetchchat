@@ -2,7 +2,9 @@
 SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
 SPDX-License-Identifier: MIT
 -->
+
 # Example apps.yaml
+
 ```
 twitch_fetchchat:
   module: twitch_fetchchat

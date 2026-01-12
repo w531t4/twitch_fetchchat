@@ -18,23 +18,28 @@ from twitch_fetchchat.config import IrcBridgeConfig
 from twitch_fetchchat.hasslog import HassLog
 
 
-class IRCAgent():
+class IRCAgent:
     """
     Anonymous, read-only Twitch IRC Agent
     - Joins/parts as the entity changes (unknown/empty => part & clear output)
     - Emits rolling last 3 public chat lines through chosen transport(s)
     """
-    def __init__(self,
-                 config: IrcBridgeConfig,
-                 logger: HassLog,
-                 emit_target: Callable[[List[str]], None]) -> None:
+
+    def __init__(
+        self,
+        config: IrcBridgeConfig,
+        logger: HassLog,
+        emit_target: Callable[[List[str]], None],
+    ) -> None:
         self.log = logger
         self.config = config
         self.send = emit_target
         self._irc_thread: threading.Thread | None = None
 
         # -------- State --------
-        self._last: deque[Dict[str, str | int]] = deque(maxlen=max(self.config.max_messages, 3))
+        self._last: deque[Dict[str, str | int]] = deque(
+            maxlen=max(self.config.max_messages, 3)
+        )
         self._reactor: irc.client.Reactor | None = None
         self._conn: irc.client.ServerConnection | None = None
         self._current_channel = None
@@ -43,7 +48,7 @@ class IRCAgent():
         self._lock = threading.RLock()
 
     def start(self) -> None:
-        """ start the agent """
+        """start the agent"""
         if not self._irc_thread:
             self._irc_thread = threading.Thread(target=self._irc_loop, daemon=True)
             self._irc_thread.start()
@@ -67,7 +72,7 @@ class IRCAgent():
     # -------------------- Emission --------------------
     def _emit(self) -> None:
         with self._lock:
-            items = list(self._last)[(-1 * self.config.max_messages):]
+            items = list(self._last)[(-1 * self.config.max_messages) :]
         # Build exactly 3 display lines (oldest->newest), empty if missing
         lines = [""] * (self.config.max_messages - len(items)) + [
             f"{i['user']}: {i['msg']}" for i in items
@@ -95,8 +100,10 @@ class IRCAgent():
                     backoff = self.config.reconnect_delay_s  # reset after success
 
                 if not self._reactor:
-                    raise NotImplementedError("_reactor should be defined here, but isn't.")
-                self._reactor.process_once(timeout=0.5) # pyright: ignore[reportArgumentType]
+                    raise NotImplementedError(
+                        "_reactor should be defined here, but isn't."
+                    )
+                self._reactor.process_once(timeout=0.5)  # pyright: ignore[reportArgumentType]
 
                 with self._lock:
                     target = self._current_channel
@@ -132,8 +139,10 @@ class IRCAgent():
         self._reactor = irc.client.Reactor()
         nick = "justinfan" + "".join(random.choices(string.digits, k=6))  # anonymous
 
-        self.log(f"Connecting to {self.config.irc_host}:{self.config.irc_port} "
-                 f"as {nick} (anonymous)")
+        self.log(
+            f"Connecting to {self.config.irc_host}:{self.config.irc_port} "
+            f"as {nick} (anonymous)"
+        )
         wrapper = self._tls_connect_wrapper(self.config.irc_host)
         self._conn = self._reactor.server().connect(
             self.config.irc_host,
@@ -167,21 +176,20 @@ class IRCAgent():
         self._reactor = None
 
     def terminate(self) -> None:
-        """ stop irc session """
+        """stop irc session"""
         self._stop_flag = True
         self._teardown()
 
     # -------------------- IRC events --------------------
-    def _on_disconnect(self,
-                       conn: irc.client.ServerConnection,
-                       event: irc.client.Event) -> None:
+    def _on_disconnect(
+        self, conn: irc.client.ServerConnection, event: irc.client.Event
+    ) -> None:
         """Handle disconnect events."""
         self._connected = False
 
-
-    def _on_ping(self,
-                 conn: irc.client.ServerConnection,
-                 event: irc.client.Event) -> None:
+    def _on_ping(
+        self, conn: irc.client.ServerConnection, event: irc.client.Event
+    ) -> None:
         """Respond to server PINGs to keep the connection alive."""
         try:
             target: Optional[str] = event.target  # may be None
@@ -189,13 +197,15 @@ class IRCAgent():
         except Exception:
             pass
 
-    def _on_pubmsg(self,
-                   conn: irc.client.ServerConnection,
-                   event: irc.client.Event) -> None:
+    def _on_pubmsg(
+        self, conn: irc.client.ServerConnection, event: irc.client.Event
+    ) -> None:
         """Handle public channel chat messages (PRIVMSG to a channel)."""
         try:
             channel: str = event.target or ""
-            nick: str = irc.client.NickMask(event.source).nick if event.source else "unknown"
+            nick: str = (
+                irc.client.NickMask(event.source).nick if event.source else "unknown"
+            )
             msg: str = event.arguments[0] if event.arguments else ""
 
             item: Dict[str, str | int] = {
@@ -211,7 +221,9 @@ class IRCAgent():
         except Exception as e:
             self.log(f"pubmsg parse error: {e}", level="ERROR")
 
-    def _tls_connect_wrapper(self, server_address: str) -> Callable[[socket.socket], ssl.SSLSocket]:
+    def _tls_connect_wrapper(
+        self, server_address: str
+    ) -> Callable[[socket.socket], ssl.SSLSocket]:
         """
         TLS socket wrapper for python-irc.
         """

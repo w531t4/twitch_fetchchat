@@ -11,11 +11,13 @@ if TYPE_CHECKING:
 
 
 class UDPTransport(_TransportBase):
-    def __init__(self,
-                 logger: TwitchIrcBridge,
-                 hosts: Sequence[str],
-                 port: int,
-                 max_chars: int | None = None):
+    def __init__(
+        self,
+        logger: TwitchIrcBridge,
+        hosts: Sequence[str],
+        port: int,
+        max_chars: int | None = None,
+    ):
         self.log = logger.log
         self.hosts = hosts if isinstance(hosts, (list, tuple)) else [hosts]
         self.port = int(port)
