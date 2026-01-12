@@ -1,4 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
 # SPDX-License-Identifier: MIT
+**/__pycache__/**
+.pytest_cache/*
+__pycache__
+*.pyc
+/.esphome/
+/tests/.gitignore
 /.venv
 /private
