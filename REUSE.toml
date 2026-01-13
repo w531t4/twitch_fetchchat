@@ -5,9 +5,7 @@ path = [
 ".pylintrc",
 ".vscode/settings.json",
 ".python-version",
-".devcontainer/devcontainer.json",
-".github/workflows/release.yml",
-"CHANGELOG.md"
+".devcontainer/devcontainer.json"
 ]
 SPDX-FileCopyrightText = "2025 Aaron White <w531t4@gmail.com>"
 SPDX-License-Identifier = "MIT"
