@@ -212,6 +212,10 @@ class IRCAgent:
         """Handle public channel chat messages (PRIVMSG to a channel)."""
         try:
             channel: str = event.target or ""
+            with self._lock:
+                current = self._current_channel
+            if current and channel.lstrip("#") != current:
+                return
             nick: str = (
                 irc.client.NickMask(event.source).nick if event.source else "unknown"
             )
