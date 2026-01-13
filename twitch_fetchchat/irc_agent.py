@@ -97,7 +97,7 @@ class IRCAgent:
                         time.sleep(self.config.reconnect_delay_s)
                         continue
                     self._connect()
-                    joined = set()
+                    joined.clear()
                     backoff = self.config.reconnect_delay_s  # reset after success
 
                 if not self._reactor:
@@ -111,23 +111,7 @@ class IRCAgent:
                     conn = self._conn
 
                 if self._connected and conn:
-                    want: set[str] = set([f"#{target}"]) if target else set()
-                    # self.log(f"joined={joined} want={want}")
-                    for ch in list(joined.difference(want)):
-                        try:
-                            conn.part(ch)
-                            joined.discard(ch)
-                            self.log(f"Parted {ch}")
-                        except Exception as e:
-                            self.log(f"PART error: {e}", level="ERROR")
-
-                    for ch in list(want.difference(joined)):
-                        try:
-                            conn.join(ch)
-                            joined.add(ch)
-                            self.log(f"Joined {ch}")
-                        except Exception as e:
-                            self.log(f"JOIN error: {e}", level="ERROR")
+                    self._sync_channels(conn, joined, target)
                 continue
             except Exception as e:
                 self.log(f"IRC loop error: {e}", level="WARNING")
@@ -135,6 +119,30 @@ class IRCAgent:
             # optional backoff (if you already use it)
             time.sleep(backoff + random.random() * 0.5 * backoff)
             backoff = min(backoff * 2, 60)
+
+    def _sync_channels(
+        self,
+        conn: irc.client.ServerConnection,
+        joined: set[str],
+        target: Optional[str],
+    ) -> None:
+        want = {f"#{target}"} if target else set()
+        # self.log(f"joined={joined} want={want}")
+        for ch in list(joined.difference(want)):
+            try:
+                conn.part(ch)
+                joined.discard(ch)
+                self.log(f"Parted {ch}")
+            except Exception as e:
+                self.log(f"PART error: {e}", level="ERROR")
+
+        for ch in list(want.difference(joined)):
+            try:
+                conn.join(ch)
+                joined.add(ch)
+                self.log(f"Joined {ch}")
+            except Exception as e:
+                self.log(f"JOIN error: {e}", level="ERROR")
 
     def _connect(self) -> None:
         self._reactor = irc.client.Reactor()
