@@ -11,6 +11,7 @@ echo "Installing development dependencies..."
 # Install esphome
 uv pip install \
   -r requirements.txt \
+  -r requirements_test.txt \
   colorlog \
   --upgrade \
   --config-settings editable_mode=compat

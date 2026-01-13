@@ -28,7 +28,8 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python dependencies from requirements
 RUN --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    uv pip install -r requirements.txt
+    --mount=type=bind,source=requirements_test.txt,target=requirements_test.txt \
+    uv pip install -r requirements.txt -r requirements_test.txt
 
 WORKDIR /workspaces
 
