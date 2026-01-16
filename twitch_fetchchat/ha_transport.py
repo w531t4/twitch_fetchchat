@@ -20,12 +20,12 @@ class HAAttrTransport(_TransportBase):
     def send(self, lines):
         # lines = [line1, line2, line3] oldest->newest (strings)
         attrs = {
-            "line1": lines[0] or "",
-            "line2": lines[1] or "",
-            "line3": lines[2] or "",
             "updated": int(time.time()),
             "friendly_name": "Twitch Chat Bridge",
             "icon": "mdi:chat",
         }
+        for i, line in enumerate(lines):
+            attrs.update({f"line{i + 1}": line or ""})
+
         # Keep state constant to reduce churn; attributes carry the payload
         self.hass.set_state(self.entity_id, state="ok", attributes=attrs)
