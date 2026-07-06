@@ -92,7 +92,6 @@ class IRCAgent:
                     # Only connect when we actually have a target channel
                     with self._lock:
                         target = self._current_channel
-                        self.log(f"self._current_channel={target}")
                     if target is None:
                         time.sleep(self.config.reconnect_delay_s)
                         continue
